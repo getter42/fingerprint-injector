@@ -20,7 +20,7 @@ type addInitScriptOptions = {
 }
 
 type BrowserContext = {
-    addInitScript: (options: addInitScriptOptions)=> Promise<void>;
+    addInitScript: (options: addInitScriptOptions) => Promise<void>;
     setExtraHTTPHeaders: (headers: Headers) => Promise<void>;
 
 }
@@ -34,7 +34,7 @@ type Page = {
     evaluateOnNewDocument: (functionToEvaluate: string) => Promise<void>;
     setUserAgent: (userAgent: string) => Promise<void>;
     setViewport: (viewport: Viewport) => Promise<void>;
-    setExtraHTTPHeaders: (headers: Headers)=> Promise<void>;
+    setExtraHTTPHeaders: (headers: Headers) => Promise<void>;
 }
 
 /**
@@ -109,7 +109,7 @@ export class FingerprintInjector {
     private _getInjectableFingerprintFunction(fingerprint: EnhancedFingerprint): string {
         function inject() {
             // @ts-expect-error Internal browser code for injection
-            const { batteryInfo, navigator: newNav, screen: newScreen, webGl, historyLength, audioCodecs, videoCodecs } = fp;
+            const { batteryInfo, navigator: newNav, screen: newScreen, webGl, historyLength, audioCodecs, videoCodecs, pluginsData } = fp;
 
             // override navigator
             // @ts-expect-error Internal browser code for injection
@@ -137,6 +137,10 @@ export class FingerprintInjector {
             // eslint-disable-next-line @typescript-eslint/ban-ts-comment
             // @ts-ignore Internal browser code for injection
             overrideBattery(batteryInfo);
+
+            // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+            // @ts-ignore Internal browser code for injection
+            // overridePluginsAndMimeTypes(pluginsData);
         }
 
         const mainFunctionString: string = inject.toString();
@@ -149,6 +153,7 @@ export class FingerprintInjector {
             battery,
             navigator,
             userAgent,
+            pluginsData,
             ...rest
         } = fingerprint as any; // Temp fix until we release the new fp schema
         const parsedUa = useragent.parse(userAgent);
@@ -173,12 +178,47 @@ export class FingerprintInjector {
             batteryData = { level: 0.25, chargingTime: 322, dischargingTime: Infinity }; // TODO: randomize
         }
 
+        const { plugins, mimeTypes } = pluginsData;
+
+        let regeneratedPluginsData;
+
+        if (plugins?.length && mimeTypes?.length) {
+            regeneratedPluginsData = this._regeneratePluginData(plugins);
+        }
+
         return {
             ...rest,
             navigator,
             batteryData,
             userAgent,
+            pluginsData: regeneratedPluginsData,
         };
+    }
+
+    _regeneratePluginData(rawPlugins: any[]) {
+        const mimeTypes = [];
+        const plugins = [];
+
+        for (const plugin of rawPlugins) {
+            const pluginMimeTypes = [];
+            for (const mimeType of plugin.mimeTypes) {
+                mimeTypes.push({
+                    __pluginName: mimeType.enabledPlugin,
+                    type: mimeType.type,
+                    suffixes: mimeType.suffixes,
+                    description: mimeType.description,
+                });
+                pluginMimeTypes.push(mimeType.type);
+            }
+            plugins.push({
+                name: plugin.name,
+                describtion: plugin.description,
+                filename: plugin.filename,
+                __mimeTypes: pluginMimeTypes,
+            });
+        }
+
+        return { mimeTypes, plugins };
     }
 
     private _loadUtils(): string {
